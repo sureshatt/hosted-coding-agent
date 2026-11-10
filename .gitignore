@@ -1,0 +1,19 @@
+# Credentials never belong in this repository.
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# Runtime state and evidence are produced inside the VM, not committed.
+/state/
+/evidence/
+*.jsonl
+
+# Agent transcripts can contain tokens or canaries.
+transcripts/
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
