@@ -60,3 +60,30 @@ is created and destroyed by script. The only host path the VM sees is this
 repository, mounted read-only; Lima's default home-directory mount and all
 port forwards to the Mac are disabled. Docker Desktop is not supported: its
 VM cannot be configured this way.
+
+## D3. Gateway and sink run on runc, not gVisor
+
+The gateway and sink are attached to each new session network while they
+are running, and gVisor does not support adding network interfaces to a
+running sandbox. Both are our own code (standard library only), run as a
+non-root user with a read-only root filesystem, no capabilities and
+`no-new-privileges`. The gateway still parses input from sessions, so this
+is a gap: in production it would be its own VM or managed service, reached
+over a routed network rather than attached to every bridge.
+
+## D4. Revocation through a file, not an admin API
+
+The gateway reads `tokens.json` from a directory the VM mounts read-only
+into the gateway container, and re-reads it on every change. The control
+plane writes it atomically (write, then rename). There is no admin port for
+a session to reach, and revocation takes effect on the next request;
+containment checks this by presenting the revoked token and reading the
+gateway's reason for rejecting it.
+
+## D5. DNS: no resolver for sessions
+
+Sessions have no name resolution except `/etc/hosts` entries the control
+plane writes. Their `resolv.conf` points at the bridge address, so every
+lookup reaches the VM, is logged with the session ID and is dropped. This
+replaces the logging resolver in the original design: nothing a session
+needs requires DNS, and a resolver would be one more path out.
