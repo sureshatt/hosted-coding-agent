@@ -46,12 +46,18 @@ def cmd_setup(a):
         (config.SECRETS / "upstream.env").read_text().strip() else "mock"
     if a.mock:
         upstream = "mock"
-    current = subprocess.run(["docker", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", config.GATEWAY],
-                             capture_output=True, text=True).stdout
-    if current and f"FG_UPSTREAM={upstream}" not in current:
-        subprocess.run(["docker", "rm", "-f", config.GATEWAY], capture_output=True)
+    # Recreate the gateway and sink so they run the images just built.
+    subprocess.run(["docker", "rm", "-f", config.GATEWAY, config.SINK], capture_output=True)
     session.start_infra(upstream)
     print(f"gateway running (upstream: {upstream}); sink running")
+
+    # Detector as a systemd service in the VM, restarted if it dies.
+    subprocess.run(["systemctl", "stop", "fg-detector"], capture_output=True)
+    subprocess.run(["systemctl", "reset-failed", "fg-detector"], capture_output=True)
+    subprocess.run(["systemd-run", "--unit", "fg-detector", "--property", "Restart=always",
+                    "--working-directory", str(config.REPO), "python3", "-B", "-m", "fg.cli", "detector"],
+                   check=True, capture_output=True)
+    print("detector running (journalctl -u fg-detector)")
 
 
 def cmd_create(a):
@@ -142,6 +148,17 @@ def cmd_evidence(a):
     sys.exit(0 if ok else 1)
 
 
+def cmd_alerts(a):
+    for rec in evidence.read("alerts"):
+        d = rec["data"]
+        if a.session and d.get("session") != a.session:
+            continue
+        c = d.get("containment")
+        print(f"{time.strftime('%H:%M:%S', time.localtime(rec['ts']))}  {d['severity']:<8} {rec['kind']:<16} "
+              f"session={d.get('session')} user={d.get('user')}  {d['action']['what']}"
+              + (f"  [contained, verified={c['all_verified']}]" if c else ""))
+
+
 def cmd_detector(a):
     from . import detector
     detector.main()
@@ -192,6 +209,7 @@ def main():
 
     sub.add_parser("evidence-verify").set_defaults(f=cmd_evidence)
     sub.add_parser("detector").set_defaults(f=cmd_detector)
+    s = sub.add_parser("alerts"); s.set_defaults(f=cmd_alerts); s.add_argument("session", nargs="?")
     s = sub.add_parser("test", help="run the security test harness"); s.set_defaults(f=cmd_test)
     s.add_argument("--agent-runs", type=int, default=1, help="prompt-injection runs (need a credential)")
     s.add_argument("--skip-agent", action="store_true", help="only the deterministic tests")

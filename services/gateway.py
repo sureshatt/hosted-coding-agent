@@ -82,6 +82,7 @@ def canary_forms(canary: str) -> dict[str, bytes]:
     for shift in range(3):
         enc = base64.b64encode(b"\0" * shift + raw)[(shift * 4 + 2) // 3:]
         forms[f"base64/{shift}"] = enc[: len(enc) - 4]
+        forms[f"base64url/{shift}"] = enc[: len(enc) - 4].replace(b"+", b"-").replace(b"/", b"_")
     return forms
 
 
@@ -89,7 +90,7 @@ def find_canaries(body: bytes) -> list[dict]:
     hits = []
     for info in tokens().values():
         for form, needle in canary_forms(info["canary"]).items():
-            if needle and needle in body:
+            if needle and (needle in body or (form == "hex" and needle in body.lower())):
                 hits.append({"canary_session": info["session"], "encoding": form})
                 break
     return hits
