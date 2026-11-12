@@ -48,15 +48,14 @@ provision:
         apt-get update
         apt-get install -y runsc
       fi
-      # Session runtimes use gVisor with --network=host: gVisor passes socket
-      # calls to the kernel inside the session's namespace (owned by the
-      # enforcer), so the enforcer's nftables rules apply. gVisor's default
-      # network mode takes over that interface instead and breaks it for later
-      # sessions; see docs/decisions.md (D1) and spikes/netns-gvisor/.
+      # Session runtimes use gVisor ("runsc") in its default network mode:
+      # gVisor's own TCP/IP stack, so the agent never makes socket calls to
+      # the VM kernel. Egress is enforced on the session's bridge in the VM
+      # (see fg/netpolicy.py and docs/decisions.md D1).
       cat > /etc/docker/daemon.json <<'EOF'
       {
         "runtimes": {
-          "runsc-kernelnet": { "path": "/usr/bin/runsc", "runtimeArgs": ["--network=host"] }
+          "runsc": { "path": "/usr/bin/runsc" }
         },
         "ipv6": false,
         "icc": false,

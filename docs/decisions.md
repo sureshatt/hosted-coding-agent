@@ -3,40 +3,53 @@
 Short records of decisions that shape the security of the platform, with the
 evidence behind them. Newest last.
 
-## D1. Session runtime: gVisor with kernel networking, inside an enforcer-owned namespace
+## D1. Egress boundary: nftables on the VM side of each session's bridge; runtime on gVisor
 
-**Decision.** Each session runs as two containers. The *enforcer* owns the
-session's network namespace and loads nftables rules (default deny, allow the
-model gateway, log every drop). The *runtime* joins that namespace
-(`--network container:<enforcer>`) using gVisor with `--network=host`
-(Docker runtime `runsc-kernelnet`), with all capabilities dropped.
+**Decision.** Each session gets its own Docker bridge (`br-fg-<id>`). The
+runtime joins it on gVisor in its default mode (gVisor's own TCP/IP stack).
+The VM, not any container, holds a per-session nftables table in the
+`bridge` family that filters every frame entering the bridge from the
+runtime's port: allow the model gateway on its one port, log and drop
+everything else, and log and drop everything addressed to the VM itself.
 
-**Evidence.** `spikes/netns-gvisor/run.sh`, run in a fresh VM (2026-11-10):
+The bridge is a normal Docker bridge with NAT disabled, not `--internal`.
+On an internal network gVisor has no default route, so an attempt to reach
+the internet fails inside the sandbox and is never seen. With a default
+route via the VM, every attempt reaches the bridge, is logged with the
+session ID, and is dropped. NAT is disabled so nothing would get out even if
+the rules were missing. DNS goes to the bridge address through a mounted
+`resolv.conf` (Docker's 127.0.0.11 resolver is the sandbox's own loopback
+under gVisor) so lookups are logged and dropped too.
 
-| Runtime | Gateway allowed | Sink blocked | Raw IP blocked | Drops logged | Rules survive root in runtime |
-|---|---|---|---|---|---|
-| runc | yes | yes | yes | yes | yes (no `CAP_NET_ADMIN`) |
-| runsc-kernelnet | yes | yes | yes | yes | yes (no `CAP_NET_ADMIN`; gVisor also has no nftables netlink) |
-| runsc (default) | first session only | n/a | n/a | no | n/a |
+**Evidence.** `spikes/bridge-nft/run.sh`, 2026-11-12, fresh VM:
 
-gVisor's default network mode takes over the namespace's interface: the first
-container worked and every later container in the same namespace had no
-network. It looked "blocked" in testing but was simply broken, and it would
-bypass the enforcer's rules rather than obey them. Rejected.
+| Attempt from the runtime | Result | Logged |
+|---|---|---|
+| gateway :8443 | allowed | n/a |
+| gateway, other port | blocked | yes |
+| sink | blocked | yes |
+| internet by IP | blocked | yes |
+| DNS query (tunnel) | blocked | yes |
+| hostname lookup + HTTPS | blocked | yes |
+| VM via bridge address | blocked | yes |
+| Mac via Lima host address | blocked | yes |
+| positive control (sink allowed by rule) | reached sink | n/a |
 
-The first spike run also produced a false result: the rules silently failed
-to load (`docker exec` without `-i` dropped stdin) and runc reached the sink.
-The spike now refuses to continue unless the rules are loaded, and the test
-harness will include a positive control for the same reason.
+**Why not the alternatives.**
+- *Enforcer container sharing the runtime's namespace* (`spikes/netns-gvisor/`):
+  works only with gVisor's `--network=host`, which hands network syscalls to
+  the VM kernel; gVisor's default mode takes over the interface and breaks
+  it for later sessions. The rules also sat inside a namespace the runtime
+  shares.
+- *No network at all* (`--network none` plus a Unix socket to the gateway):
+  stronger prevention, but attempts are invisible outside the sandbox.
+- *Kubernetes with Cilium and a gVisor RuntimeClass*: the production
+  equivalent of this design; too much setup for the timebox.
 
-**Trade-off.** With `--network=host`, gVisor passes socket calls to the VM
-kernel's network stack, so the network part of the kernel is exposed to the
-sandbox; filesystem, process and other syscalls stay inside gVisor. In
-production, a microVM (Firecracker or Kata) per session would remove this
-trade-off.
-
-**Where drops are logged.** The VM kernel log (`journalctl -k`), enabled by
-`net.netfilter.nf_log_all_netns=1`. Session containers cannot read or alter it.
+**Limits.** The rules are only as good as their loading: `fgctl` checks the
+table after every change, and the harness runs a positive control. Rules
+identify the runtime by "the bridge port that is not the gateway or sink",
+captured before the runtime starts. A VM root compromise defeats all of this.
 
 ## D2. Host: a Lima VM on macOS, Docker Engine on Linux
 
