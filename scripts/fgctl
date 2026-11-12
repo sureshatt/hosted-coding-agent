@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Run fgctl inside the VM as root. The initiating user is the host user.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec limactl shell --workdir /fg fg -- sudo FG_USER="${USER:-unknown}" python3 -B -m fg.cli "$@"
