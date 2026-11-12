@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   canary      TEXT NOT NULL,
   token_hash  TEXT NOT NULL,
   task        TEXT,
+  repo        TEXT NOT NULL DEFAULT 'invoice',
   state       TEXT NOT NULL,
   created     REAL NOT NULL,
   updated     REAL NOT NULL
@@ -48,8 +49,8 @@ def allocate_subnet(conn) -> int:
 def add(conn, **s):
     now = time.time()
     conn.execute(
-        "INSERT INTO sessions (id, user, profile, subnet_n, canary, token_hash, task, state, created, updated)"
-        " VALUES (:id, :user, :profile, :subnet_n, :canary, :token_hash, :task, :state, :now, :now)",
+        "INSERT INTO sessions (id, user, profile, subnet_n, canary, token_hash, task, repo, state, created, updated)"
+        " VALUES (:id, :user, :profile, :subnet_n, :canary, :token_hash, :task, :repo, :state, :now, :now)",
         {**s, "now": now},
     )
 

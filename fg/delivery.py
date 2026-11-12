@@ -93,10 +93,11 @@ def publish(sid: str, repo: str, tar: Path, verdict: dict, user: str) -> str:
         return subprocess.run([*g, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def deliver(sid: str, repo: str = "invoice") -> dict:
+def deliver(sid: str) -> dict:
     s = registry.get(sid)
     if s is None:
         raise RuntimeError(f"unknown session {sid}")
+    repo = s["repo"]
     work = Path(tempfile.mkdtemp(prefix=f"fg-deliver-{sid}-"))
     try:
         tar = export(sid, work)

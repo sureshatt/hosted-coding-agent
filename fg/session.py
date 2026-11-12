@@ -136,7 +136,7 @@ def create(user: str, profile: str = "secure", repo: str = "invoice") -> str:
     with registry.db() as conn:
         n = registry.allocate_subnet(conn)
         registry.add(conn, id=sid, user=user, profile=profile, subnet_n=n, canary=canary,
-                     token_hash=token_hash, task=None, state="creating")
+                     token_hash=token_hash, task=None, repo=repo, state="creating")
     try:
         # 1. Session network: a normal bridge with NAT off, so attempts to
         #    leave reach the VM (and are logged) but nothing is translated out.

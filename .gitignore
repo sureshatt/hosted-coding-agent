@@ -17,3 +17,6 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Test reports (a reference copy lives in docs/)
+results/

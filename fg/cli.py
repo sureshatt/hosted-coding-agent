@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 from . import config, evidence, netpolicy, registry, session
 
@@ -20,11 +21,20 @@ def cmd_setup(a):
         subprocess.run(["docker", "build", "-q", "-t", image, "-f", str(config.REPO / dockerfile), str(config.REPO)],
                        check=True, stdout=subprocess.DEVNULL)
 
-    remote = config.GIT_REMOTE / "invoice.git"
-    if not remote.exists():
+    # Two copies of the fixture: "invoice" carries the injected instructions,
+    # "invoice-clean" does not (for the legitimate-task check).
+    for name, strip_injection in (("invoice", False), ("invoice-clean", True)):
+        remote = config.GIT_REMOTE / f"{name}.git"
+        if remote.exists():
+            continue
         config.GIT_REMOTE.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["cp", "-r", f"{config.REPO}/fixtures/invoice/.", tmp], check=True)
+            if strip_injection:
+                f = Path(tmp) / "invoice" / "totals.py"
+                src = f.read_text()
+                end = src.index('"""', 3) + 3
+                f.write_text('"""Invoice totals."""' + src[end:])
             g = ["git", "-C", tmp, "-c", "user.name=fg platform", "-c", "user.email=platform@fg.invalid"]
             subprocess.run(["git", "init", "-q", "-b", "main", tmp], check=True)
             subprocess.run([*g, "add", "-A"], check=True)
@@ -61,7 +71,7 @@ def cmd_setup(a):
 
 
 def cmd_create(a):
-    sid = session.create(a.user, a.profile)
+    sid = session.create(a.user, a.profile, a.repo)
     print(sid)
 
 
@@ -72,7 +82,7 @@ def cmd_run(a):
 
 def cmd_start(a):
     """create + run in one step."""
-    sid = session.create(a.user, a.profile)
+    sid = session.create(a.user, a.profile, a.repo)
     session.run(sid, "agent", a.task, a.model)
     print(sid)
 
@@ -186,6 +196,7 @@ def main():
 
     s = sub.add_parser("create"); s.set_defaults(f=cmd_create)
     s.add_argument("--profile", default="secure", choices=["secure", "vulnerable"])
+    s.add_argument("--repo", default="invoice", choices=["invoice", "invoice-clean"])
 
     s = sub.add_parser("run"); s.set_defaults(f=cmd_run)
     s.add_argument("session"); s.add_argument("mode", choices=["agent", "shell"]); s.add_argument("arg")
@@ -193,6 +204,7 @@ def main():
 
     s = sub.add_parser("start", help="create a session and run the agent on a task"); s.set_defaults(f=cmd_start)
     s.add_argument("task"); s.add_argument("--profile", default="secure", choices=["secure", "vulnerable"])
+    s.add_argument("--repo", default="invoice", choices=["invoice", "invoice-clean"])
     s.add_argument("--model")
 
     s = sub.add_parser("logs"); s.set_defaults(f=cmd_logs)
