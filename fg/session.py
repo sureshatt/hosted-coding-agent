@@ -59,23 +59,30 @@ def start_infra(upstream: str) -> None:
         secret_env.write_text("")
         os.chmod(secret_env, 0o600)
 
-    if not docker("network", "ls", "-q", "--filter", f"name=^{config.EGRESS_NET}$"):
-        docker("network", "create", "--label", config.LABEL, config.EGRESS_NET)
-    # The sink's home network has no route anywhere; it is only reachable
-    # through the session bridges it is attached to.
-    if not docker("network", "ls", "-q", "--filter", f"name=^{config.SINK_HOME_NET}$"):
-        docker("network", "create", "--internal", "--label", config.LABEL, config.SINK_HOME_NET)
+    for name, bridge, subnet, vm_ip, nat in (
+            (config.EGRESS_NET, config.EGRESS_BRIDGE, config.EGRESS_SUBNET, config.EGRESS_VM_IP, "true"),
+            (config.SINK_NET, config.SINK_BRIDGE, config.SINK_SUBNET, config.SINK_VM_IP, "false")):
+        if not docker("network", "ls", "-q", "--filter", f"name=^{name}$"):
+            docker("network", "create", "--label", config.LABEL, "--subnet", subnet, "--gateway", vm_ip,
+                   "-o", f"com.docker.network.bridge.name={bridge}",
+                   "-o", f"com.docker.network.bridge.enable_ip_masquerade={nat}", name)
 
-    # The gateway and sink run on runc, not gVisor: they are attached to each
-    # new session network while running, which gVisor does not support. Both
-    # are our own code, non-root, read-only, with no capabilities. See
-    # docs/decisions.md D3.
+    # The gateway needs DNS for api.anthropic.com. Docker's embedded
+    # resolver does not work under gVisor, so point it at the VM's upstream
+    # resolver, which its egress policy allows (and nothing else private).
+    dns = _vm_resolver()
+    resolv = config.GATEWAY_STATE.parent / "gateway-resolv.conf"
+    resolv.write_text(f"nameserver {dns}\n")
+    os.chmod(resolv, 0o644)
+    netpolicy.apply_gateway_egress(dns)
+
+    # Both run in gVisor, each on its own network; nothing is attached to
+    # a running container later (gVisor would not see it: docs/decisions.md D3).
     if not running(config.GATEWAY):
         docker("rm", "-f", config.GATEWAY, check=False)
         docker("run", "-d", "--name", config.GATEWAY, "--label", config.LABEL, "--restart", "unless-stopped",
-               # Keep the default route on the egress network however many
-               # session networks are attached later.
-               "--network", f"name={config.EGRESS_NET},gw-priority=100", *HARDENING,
+               "--runtime", "runsc", "--network", config.EGRESS_NET, "--ip", config.GATEWAY_IP, *HARDENING,
+               "-v", f"{resolv}:/etc/resolv.conf:ro",
                "--env-file", str(secret_env), "-e", f"FG_UPSTREAM={upstream}",
                "-v", f"{config.GATEWAY_STATE}:/etc/fg:ro",
                "-v", f"{config.LOGS / 'gateway'}:/var/log/fg",
@@ -83,21 +90,16 @@ def start_infra(upstream: str) -> None:
     if not running(config.SINK):
         docker("rm", "-f", config.SINK, check=False)
         docker("run", "-d", "--name", config.SINK, "--label", config.LABEL, "--restart", "unless-stopped",
-               "--network", config.SINK_HOME_NET, *HARDENING,
+               "--runtime", "runsc", "--network", config.SINK_NET, "--ip", config.SINK_IP, *HARDENING,
                "-v", f"{config.LOGS / 'sink'}:/var/log/fg",
                config.INFRA_IMAGE, "python3", "-B", "/srv/sink.py")
-    # Reattach to session networks that still exist (after a VM restart).
-    for s in registry.all_sessions():
-        _attach_infra(s["id"], s["subnet_n"])
 
 
-def _attach_infra(sid: str, n: int) -> None:
-    nets_gw = docker("inspect", "-f", "{{json .NetworkSettings.Networks}}", config.GATEWAY)
-    if net_name(sid) not in json.loads(nets_gw):
-        docker("network", "connect", "--ip", ip(n, config.GATEWAY_IP_SUFFIX), net_name(sid), config.GATEWAY)
-    nets_sink = docker("inspect", "-f", "{{json .NetworkSettings.Networks}}", config.SINK)
-    if net_name(sid) not in json.loads(nets_sink):
-        docker("network", "connect", "--ip", ip(n, config.SINK_IP_SUFFIX), net_name(sid), config.SINK)
+def _vm_resolver() -> str:
+    for line in open("/run/systemd/resolve/resolv.conf"):
+        if line.startswith("nameserver"):
+            return line.split()[1]
+    raise RuntimeError("no upstream DNS server found in the VM")
 
 
 # --- gateway tokens ----------------------------------------------------------
@@ -145,16 +147,10 @@ def create(user: str, profile: str = "secure", repo: str = "invoice") -> str:
                "-o", "com.docker.network.bridge.enable_ip_masquerade=false",
                "-o", f"com.docker.network.bridge.name={netpolicy.bridge_name(sid)}",
                net_name(sid))
-        _attach_infra(sid, n)
 
-        # 2. Egress policy, before the runtime exists. The two ports on the
-        #    bridge now are the gateway and the sink; anything else is the runtime.
-        infra_ports = netpolicy.bridge_ports(sid)
-        if len(infra_ports) != 2:
-            raise RuntimeError(f"expected 2 infrastructure ports on the bridge, found {infra_ports}")
-        netpolicy.apply(sid, n, infra_ports, profile)
+        # 2. Egress policy, before the runtime exists.
+        netpolicy.apply(sid, n, profile)
         (session_dir(sid)).mkdir(parents=True, exist_ok=True)
-        (session_dir(sid) / "infra_ports.json").write_text(json.dumps(infra_ports))
 
         # 3. Session token, bound to the runtime's address.
         data = _read_tokens()
@@ -194,7 +190,7 @@ def run(sid: str, mode: str, arg: str, model: str | None = None) -> None:
     if s is None or s["state"] != "ready":
         raise RuntimeError(f"session {sid} is not ready")
     n = s["subnet_n"]
-    gw = ip(n, config.GATEWAY_IP_SUFFIX)
+    gw = config.GATEWAY_IP
     token = (session_dir(sid) / "token").read_text()
     env = {
         "ANTHROPIC_BASE_URL": f"http://{gw}:{config.GATEWAY_PORT}",
@@ -212,7 +208,7 @@ def run(sid: str, mode: str, arg: str, model: str | None = None) -> None:
            "--runtime", "runsc",
            "--network", net_name(sid), "--ip", ip(n, config.RUNTIME_IP_SUFFIX),
            "-v", f"{session_dir(sid) / 'resolv.conf'}:/etc/resolv.conf:ro",
-           "--add-host", f"{config.SINK_HOSTNAME}:{ip(n, config.SINK_IP_SUFFIX)}",
+           "--add-host", f"{config.SINK_HOSTNAME}:{config.SINK_IP}",
            "-v", f"{volume_name(sid)}:/workspace",
            "--read-only", "--tmpfs", "/tmp", "--tmpfs", f"/home/agent:uid={config.AGENT_UID},gid={config.AGENT_UID}",
            "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -245,8 +241,6 @@ def destroy(sid: str, quiet: bool = False) -> None:
     revoke_token(sid)
     docker("rm", "-f", runtime_name(sid), check=False)
     netpolicy.remove(sid)
-    for c in (config.GATEWAY, config.SINK):
-        docker("network", "disconnect", "-f", net_name(sid), c, check=False)
     docker("network", "rm", net_name(sid), check=False)
     docker("volume", "rm", "-f", volume_name(sid), check=False)
     sh("rm", "-rf", str(session_dir(sid)), check=False)
@@ -263,8 +257,7 @@ def _token_rejected_as_revoked(sid: str) -> bool:
     here is rejected; the gateway's log says whether it was because the
     token is revoked, which is what we need to confirm."""
     token = (session_dir(sid) / "token").read_text()
-    gw = docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{config.EGRESS_NET}").IPAddress}}}}',
-                config.GATEWAY)
+    gw = config.GATEWAY_IP
     t = time.time()
     req = urllib.request.Request(f"http://{gw}:{config.GATEWAY_PORT}/v1/messages", data=b"{}", method="POST",
                                  headers={"Authorization": f"Bearer {token}"})
@@ -302,8 +295,7 @@ def contain(sid: str, reason: str, by: str) -> dict:
 
     def quarantine():
         # Nothing from the runtime, not even to the gateway.
-        infra_ports = json.loads((session_dir(sid) / "infra_ports.json").read_text())
-        netpolicy.apply(sid, n, infra_ports, "quarantine")
+        netpolicy.apply(sid, n, "quarantine")
         return netpolicy.current_profile(sid) == "quarantine", {}
 
     def revoke():

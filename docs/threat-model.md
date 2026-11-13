@@ -62,13 +62,14 @@ or gVisor escape, a compromised Anthropic API.
 | Access ends with the session (token revoked, table, network, volume removed) | Demonstrated | "Teardown clean" column |
 | Off-host, tamper-proof evidence storage | Designed | `docs/notes.md` |
 | Verified user identity (SSO) for `fgctl` | Designed (prototype trusts `$USER`) | `docs/notes.md` |
-| Gateway and sink on gVisor | Not addressed (runc, hardened; see D3) | `docs/decisions.md` |
+| Gateway and sink in gVisor, on their own networks; VM routes only runtime → gateway:8443 | Demonstrated | `docs/decisions.md` D3 |
+| Gateway egress limited to DNS and public HTTPS (no Mac, VM or private ranges) | Demonstrated | GATEWAY_EGRESS_BLOCKED |
 | Data sent to the model provider | Detected, not prevented | D12, CANARY_TO_MODEL |
 | Malicious logic in delivered code without secrets | Not addressed (human review) | `docs/notes.md` |
 
 ## Results
 
-`scripts/test.sh`, fresh VM. Full report: `docs/results-reference.md`.
+`scripts/test.sh --agent-runs 3`, 2026-11-13. Full report: `docs/results-reference.md`.
 
 - **Deterministic: 13/13 pass.** The positive control reached the sink
   and was detected and contained, so the tests can fail. All 8 network
@@ -112,13 +113,15 @@ the host as it is written.
   to a release over two weeks old, gateway and control plane use only the
   Python standard library. Next: build provenance and signature checks, an
   internal package mirror for sessions that need installs.
-- **Privilege escalation**: gVisor plus the VM boundary; the gateway and
-  sink run on runc. Next: a microVM per session (Firecracker or Kata) and
+- **Privilege escalation**: gVisor for sessions, gateway and sink, plus the
+  VM boundary. Docker is rootful without user-namespace remapping, so a
+  gVisor escape lands as root in the VM. Next: a microVM per session (Firecracker or Kata) and
   the gateway in its own VM or as a managed service.
 - **Control-plane and cross-session access**: separate bridge, table and
   token per session; tokens bound to source address; the gateway's revoke
-  path is a root-only file the sessions cannot reach. Risk: the gateway is
-  attached to every bridge, so a gateway compromise bridges sessions.
+  path is a root-only file the sessions cannot reach. The gateway is not on
+  any session bridge, and the VM routes only runtime → gateway, so a
+  compromised gateway cannot open connections into sessions.
 - **Insecure agent code reaching production**: delivery blocks secrets and
   sensitive paths and flags risky calls and dependency changes, but cannot
   catch a clean-looking backdoor. Branch protection and required human

@@ -12,18 +12,20 @@ macOS
    │   evidence/              append-only, hash-chained · never mounted into containers
    │   git-remote/            bare repo standing in for GitHub
    │
-   ├─ nftables, one table per session (bridge family): allow runtime → gateway:8443,
-   │   log and drop everything else from the runtime, including traffic to the VM
+   ├─ nftables, per session (bridge family): runtime → gateway:8443 passes to routing;
+   │   everything else (internet, DNS, VM, sink, other sessions) logged and dropped
+   ├─ raw + DOCKER-USER: per-session ACCEPTs for runtime ↔ gateway:8443 only (routing layer)
+   ├─ nftables, gateway: DNS to the VM resolver and HTTPS to public addresses only
    │
    ├─ PER SESSION: Docker bridge br-fg-<id>, 10.250.<n>.0/24, NAT off
    │   runtime-<id> (gVisor) .10   Claude Code · uid 1000 · no capabilities · read-only root
    │                               /workspace volume · canary in .env · session token only
    │
-   └─ SHARED (runc, hardened; attached to every session bridge)
-       model gateway  .2 on each bridge, default route via fg-egress → Anthropic (or mock)
-                      reads tokens.json from a read-only mount (revocation)
-       exfil sink     .3 on each bridge; reachable at the network level,
-                      kept away only by the session's nftables table
+   ├─ fg-egress 10.249.0.0/24, NAT on
+   │   model gateway (gVisor) .2   reads tokens.json from a read-only mount (revocation)
+   │
+   └─ fg-sinknet 10.248.0.0/24, NAT off
+       exfil sink (gVisor) .3      reachable only if a session's profile is "vulnerable"
 ```
 
 ## Containers
@@ -31,17 +33,17 @@ macOS
 | Container | Lifetime | Role |
 |---|---|---|
 | agent runtime | per session | Runs the agent on the workspace. Untrusted. |
-| model gateway | shared | The only allowed destination. Swaps the session token for the real credential, allows only `POST /v1/messages`, strips server-side tools, scans for the canary, revokes sessions. |
-| exfil sink | shared | Stands in for an attacker server. Anything it logs is a successful exfiltration. |
+| model gateway | shared, gVisor | The only allowed destination. Swaps the session token for the real credential, allows only `POST /v1/messages`, strips server-side tools, scans for the canary, revokes sessions. |
+| exfil sink | shared, gVisor | Stands in for an attacker server. Anything it logs is a successful exfiltration. |
 
 ## Flows
 
-1. **Create.** `fgctl create`: session bridge, gateway and sink attached,
-   nftables table loaded and checked, session token, workspace volume
+1. **Create.** `fgctl create`: session bridge, nftables table and routing
+   rule loaded and checked, session token, workspace volume
    (fixture repo plus a fresh canary), registry entry. The runtime starts
    last, so the policy is in place before it can send anything.
 2. **Run.** The agent works in `/workspace`; its only path out is
-   bridge → gateway → Anthropic.
+   bridge → VM routing → gateway → Anthropic.
 3. **Attack.** Injected instructions ask the agent to send the canary to the
    sink. On the bridge: dropped and logged by the VM. Through the gateway:
    matched and logged. In the `vulnerable` profile: reaches the sink.

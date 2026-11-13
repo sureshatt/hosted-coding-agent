@@ -61,15 +61,57 @@ repository, mounted read-only; Lima's default home-directory mount and all
 port forwards to the Mac are disabled. Docker Desktop is not supported: its
 VM cannot be configured this way.
 
-## D3. Gateway and sink run on runc, not gVisor
+## D3. Gateway and sink on gVisor, each on its own network, routed by the VM
 
-The gateway and sink are attached to each new session network while they
-are running, and gVisor does not support adding network interfaces to a
-running sandbox. Both are our own code (standard library only), run as a
-non-root user with a read-only root filesystem, no capabilities and
-`no-new-privileges`. The gateway still parses input from sessions, so this
-is a gap: in production it would be its own VM or managed service, reached
-over a routed network rather than attached to every bridge.
+**Decision.** The gateway runs in gVisor on its own network (`fg-egress`,
+10.249.0.0/24), the sink in gVisor on its own (`fg-sinknet`, 10.248.0.0/24).
+Neither is attached to session bridges. The VM routes the one allowed flow
+(runtime → gateway:8443) and nothing else: the session's bridge table drops
+every other destination before routing, and Docker's forward chain drops
+anything without a matching `DOCKER-USER` ACCEPT, which `fgctl` adds per
+session and removes on quarantine or destroy. Source addresses are not
+translated, so tokens stay bound to the runtime's address.
+
+The gateway has its own egress policy: DNS to the VM's resolver, HTTPS to
+public addresses, replies to sessions. Private ranges, the VM and the Mac
+are logged and dropped (GATEWAY_EGRESS_BLOCKED). Before this, the gateway
+could reach services on the Mac's localhost through Docker's NAT.
+
+**Why the change.** The first version attached the gateway and sink to
+every session bridge while they were running. That ruled out gVisor, and
+made the gateway a link between sessions. Tested 2026-11-13: after
+`docker network connect` on a running gVisor container, Docker reports
+success and `docker inspect` shows the new network, but a server inside
+gVisor refuses connections on it; gVisor only sets up interfaces when the
+sandbox starts. The failure is silent.
+
+**Second silent failure.** With the forward rules in place, the agent
+still could not reach the gateway: Claude Code retried for ten minutes,
+with no drop logged and nothing in the gateway log. Docker 29's
+direct-routing protection adds a raw `PREROUTING` rule per container on a
+NAT network (`-d 10.249.0.2 ! -i br-fg-egress -j DROP`). It runs before
+`DOCKER-USER`, so the forward ACCEPT counters stayed at zero. We kept the
+protection and added a raw ACCEPT for exactly the same flow, tagged and
+removed with the session (`netpolicy._routing_rules`). The alternative,
+`gateway_mode_ipv4=nat-unprotected`, would open every port on the gateway
+to any routed source. Lesson: the reachability check (the legitimate run)
+is as important as the blocking checks.
+
+**Third: blocked, but not seen.** The harness then failed D1 and D2: the
+attempt to reach the sink was blocked, but with no log, no alert and no
+containment. `nft monitor trace` showed why. Docker loads `br_netfilter`,
+which runs the IP `PREROUTING` hooks (and Docker's raw drop) inside the
+bridge's prerouting stage, before our bridge `input` chain. Any destination
+Docker protects (the sink, other sessions' runtimes) was dropped silently.
+Both our tables now hook bridge `prerouting` at priority `filter` (-200),
+ahead of `br_netfilter` (0). An attempt that is blocked but not logged
+fails the test, because the requirement is to detect and contain, not
+only to block.
+
+**Evidence.** The gateway's Python process is not visible on the VM (only
+`runsc-sandbox`); inside, the kernel log reads "Starting gVisor". From the
+gateway: api.anthropic.com 200; the Mac, the VM and a non-HTTPS internet
+port blocked and alerted. Full harness: see `docs/results-reference.md`.
 
 ## D4. Revocation through a file, not an admin API
 

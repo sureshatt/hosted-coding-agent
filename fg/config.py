@@ -18,19 +18,26 @@ INFRA_IMAGE = "fg-infra:1"                             # gateway and sink
 RUNTIME_IMAGE = "fg-runtime:1"                         # agent runtime
 HELPER_IMAGE = "fg-infra:1"                            # copy-in / export helpers (no network)
 
-# Shared infrastructure
-EGRESS_NET = "fg-egress"
-SINK_HOME_NET = "fg-sink-home"
+# Shared infrastructure, each on its own network; the VM routes sessions to them.
 GATEWAY = "fg-gateway"
-SINK = "fg-sink"
+EGRESS_NET = "fg-egress"                 # gateway only; NAT to the internet
+EGRESS_BRIDGE = "br-fg-egress"
+EGRESS_SUBNET = "10.249.0.0/24"
+EGRESS_VM_IP = "10.249.0.1"
+GATEWAY_IP = "10.249.0.2"
 GATEWAY_PORT = 8443
+SINK = "fg-sink"
+SINK_NET = "fg-sinknet"                  # sink only; NAT off
+SINK_BRIDGE = "br-fg-sink"
+SINK_SUBNET = "10.248.0.0/24"
+SINK_VM_IP = "10.248.0.1"
+SINK_IP = "10.248.0.3"
 SINK_PORT = 8080
 
 # Per-session addressing: session n gets 10.250.n.0/24
 SUBNET_PREFIX = "10.250"
+SESSION_RANGE = "10.250.0.0/16"
 VM_IP_SUFFIX = 1          # bridge address in the VM
-GATEWAY_IP_SUFFIX = 2
-SINK_IP_SUFFIX = 3
 RUNTIME_IP_SUFFIX = 10
 SINK_HOSTNAME = "telemetry.internal"   # what the injected instructions call the sink
 

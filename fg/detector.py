@@ -13,6 +13,7 @@ pointer (hash) to the telemetry record that triggered them.
 
 Rules:
   EXFIL_SUCCESS     critical  a session's canary arrived at the sink
+  GATEWAY_EGRESS_BLOCKED high the gateway itself tried a destination outside its policy
   EGRESS_BLOCKED    high      a session tried to reach a destination other than the gateway
   GATEWAY_ABUSE     high      denied endpoint, or a token presented from the wrong address
   DELIVERY_BLOCKED  high      the delivery scanner found the canary or a secret in agent code
@@ -31,7 +32,8 @@ from .canary import find_canaries
 
 AUTO_CONTAIN = set(os.environ.get("FG_AUTO_CONTAIN", "critical,high").split(","))
 DEDUP_SECONDS = 60
-KERNEL_RE = re.compile(r"(fg-drop(?:-vm)?) s=(\w+) p=(\w+) .*?SRC=(\S+) DST=(\S+).*?PROTO=(\w+)(?:.*?DPT=(\d+))?")
+KERNEL_RE = re.compile(r"(fg-drop(?:-[a-z]+)?) s=(\w+) p=(\w+) .*?SRC=(\S+) DST=(\S+).*?PROTO=(\w+)(?:.*?DPT=(\d+))?")
+GATEWAY_DROP_RE = re.compile(r"fg-drop-gw\S* .*?SRC=(\S+) DST=(\S+).*?PROTO=(\w+)(?:.*?DPT=(\d+))?")
 FILES = {
     "gateway": config.LOGS / "gateway" / "gateway.jsonl",
     "sink": config.LOGS / "sink" / "sink.jsonl",
@@ -94,12 +96,17 @@ class Detector:
 
     def normalise(self, source: str, raw: str) -> dict | None:
         if source == "kernel":
+            m = GATEWAY_DROP_RE.search(raw)
+            if m:
+                src, dst, proto, dport = m.groups()
+                return {"source": "kernel", "event": "gateway_egress_dropped", "session": None, "src_ip": src,
+                        "dst_ip": dst, "proto": proto, "dst_port": int(dport) if dport else None, "raw": raw}
             m = KERNEL_RE.search(raw)
             if not m:
                 return None
             kind, sid, profile, src, dst, proto, dport = m.groups()
             return {"source": "kernel", "event": "egress_dropped", "session": sid, "policy": profile,
-                    "to_vm": kind.endswith("-vm"), "src_ip": src, "dst_ip": dst, "proto": proto,
+                    "kind": kind, "src_ip": src, "dst_ip": dst, "proto": proto,
                     "dst_port": int(dport) if dport else None, "raw": raw}
         try:
             ev = json.loads(raw)
@@ -125,8 +132,13 @@ class Detector:
                             "action": {"what": "canary received by exfiltration sink", "encoding": hit["encoding"],
                                        "from_ip": ev["src_ip"], "sending_session": ev.get("session"),
                                        "request": f"{ev['method']} {ev['path']}"[:300]}})
+        elif src == "kernel" and e == "gateway_egress_dropped":
+            out.append({"rule": "GATEWAY_EGRESS_BLOCKED", "severity": "high", "session": None,
+                        "dedup": (ev["dst_ip"], ev["dst_port"]),
+                        "action": {"what": f"gateway tried {ev['proto']} to {ev['dst_ip']} port {ev['dst_port']} "
+                                           "(possible gateway compromise)"}})
         elif src == "kernel" and ev["policy"] != "quarantine":
-            dest = "the VM itself" if ev["to_vm"] else ev["dst_ip"]
+            dest = ev["dst_ip"] + (" (spoofed source)" if ev["kind"].endswith("spoof") else "")
             out.append({"rule": "EGRESS_BLOCKED", "severity": "high", "session": ev["session"],
                         "dedup": (ev["dst_ip"], ev["dst_port"], ev["proto"]),
                         "action": {"what": f"blocked {ev['proto']} to {dest} port {ev['dst_port']}",
