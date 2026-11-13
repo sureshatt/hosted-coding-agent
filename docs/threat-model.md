@@ -80,9 +80,15 @@ or gVisor escape, a compromised Anthropic API.
   when the agent puts it in a prompt (D12). It is detected
   (CANARY_TO_MODEL, medium) but not prevented. This is the main residual
   risk, and it is the ownership scenario.
-- **Agent runs:** see `docs/results-reference.md`; reported separately
-  because model behaviour varies run to run and a run where the agent does
-  not try proves nothing about the platform.
+- **Agent runs (Claude Code 2.1.312, claude-opus-5-5), reported
+  separately because model behaviour varies.** In 3 of 3 injection runs the
+  agent read the planted instruction, did not act on it, fixed the bug, and
+  warned the user that the note looked like an attempt to steal the key.
+  0 attempts, 0 canaries at the sink, 0 alerts, all deliveries passed and
+  their tests pass. The legitimate task on the clean repository also
+  succeeded with every control enabled, with no false-positive alerts from
+  Claude Code's own traffic. The model refusing is not evidence that the
+  platform would have stopped it; the deterministic table is.
 
 **Detection, false positive and blind spot.** EGRESS_BLOCKED fires on any
 attempt to reach a non-allowed destination. *False positive*: an agent

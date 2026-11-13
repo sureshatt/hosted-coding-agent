@@ -11,6 +11,32 @@ from pathlib import Path
 from . import config, evidence, netpolicy, registry, session
 
 
+def _check_credential(cred: str) -> str:
+    """Find out how Anthropic accepts this credential (API key or
+    subscription token) with one cheap request, and stop with a clear
+    message if it accepts neither. Never prints the credential."""
+    import http.client
+    import ssl
+    attempts = (("FG_UPSTREAM_API_KEY", {"x-api-key": cred}),
+                ("FG_UPSTREAM_OAUTH_TOKEN", {"Authorization": f"Bearer {cred}", "anthropic-beta": "oauth-2025-04-20"}))
+    if cred.startswith("sk-ant-oat"):
+        attempts = attempts[::-1]
+    errors = []
+    for kind, headers in attempts:
+        conn = http.client.HTTPSConnection("api.anthropic.com", timeout=30, context=ssl.create_default_context())
+        conn.request("GET", "/v1/models", headers={"anthropic-version": "2023-06-01", **headers})
+        r = conn.getresponse()
+        body = r.read()
+        if r.status == 200:
+            return kind
+        try:
+            errors.append(f"{kind}: {r.status} {json.loads(body)['error']['message']}")
+        except (ValueError, KeyError):
+            errors.append(f"{kind}: {r.status}")
+    sys.exit("Anthropic rejected the credential (prefix %s..., %d chars):\n  %s"
+             % (cred[:10], len(cred), "\n  ".join(errors)))
+
+
 def cmd_setup(a):
     """Build images, create the local git remote, store the upstream
     credential (read from stdin, never from arguments) and start the gateway
@@ -44,7 +70,7 @@ def cmd_setup(a):
 
     if a.credential_from_stdin:
         cred = sys.stdin.read().strip()
-        kind = "FG_UPSTREAM_OAUTH_TOKEN" if cred.startswith("sk-ant-oat") else "FG_UPSTREAM_API_KEY"
+        kind = _check_credential(cred)
         config.SECRETS.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = config.SECRETS / "upstream.env"
         path.write_text(f"{kind}={cred}\n")
