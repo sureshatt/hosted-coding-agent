@@ -6,7 +6,7 @@ way out (a model gateway), every other attempt logged and dropped by the VM,
 detection of canary exfiltration, and automatic, verified containment.
 
 - [Threat model and results](docs/threat-model.md): start here
-- [Architecture](docs/architecture.md)
+- [Architecture](docs/architecture.md) and [diagrams](docs/diagrams.md): components, data flow, network
 - [Decisions and the evidence behind them](docs/decisions.md)
 - [Notes: built vs reused, credentials, production changes, red-team plan](docs/notes.md)
 

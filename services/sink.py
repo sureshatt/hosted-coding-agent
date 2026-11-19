@@ -1,8 +1,9 @@
 """Exfiltration sink: stands in for an attacker-controlled server.
 
 It accepts anything and records it. Its log is the success oracle for the
-attack: if a canary appears here, data left the session. It sits on every
-session bridge; only the session's egress policy keeps the runtime away.
+attack: if a canary appears here, data left the session. It has its own
+network (fg-sinknet); the VM routes an agent runtime to it only in the
+deliberately vulnerable profile.
 """
 import json
 import time
