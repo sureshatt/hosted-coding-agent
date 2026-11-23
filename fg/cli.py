@@ -199,6 +199,16 @@ def cmd_alerts(a):
               + (f"  [contained, verified={c['all_verified']}]" if c else ""))
 
 
+def cmd_containment(a):
+    for rec in evidence.read("containment"):
+        d = rec["data"]
+        if a.session and d.get("session") != a.session:
+            continue
+        steps = "  ".join(f"{st['step']}={'ok' if st['verified'] else 'FAILED'}" for st in d["steps"])
+        print(f"{time.strftime('%H:%M:%S', time.localtime(rec['ts']))}  session={d['session']} user={d['user']} "
+              f"by={d['by']} {d['seconds']}s verified={d['all_verified']}  {d['reason']}\n    {steps}")
+
+
 def cmd_detector(a):
     from . import detector
     detector.main()
@@ -252,6 +262,7 @@ def main():
     sub.add_parser("evidence-verify").set_defaults(f=cmd_evidence)
     sub.add_parser("detector").set_defaults(f=cmd_detector)
     s = sub.add_parser("alerts"); s.set_defaults(f=cmd_alerts); s.add_argument("session", nargs="?")
+    s = sub.add_parser("containment"); s.set_defaults(f=cmd_containment); s.add_argument("session", nargs="?")
     s = sub.add_parser("eval", help="run the attack and clean scenarios and grade them"); s.set_defaults(f=cmd_eval)
     s.add_argument("--agent-runs", type=int, default=1, help="prompt-injection runs (need a credential)")
     s.add_argument("--skip-agent", action="store_true", help="only the deterministic tests")

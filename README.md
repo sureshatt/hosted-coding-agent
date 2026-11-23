@@ -49,7 +49,8 @@ scripts/fgctl start "Fix the failing tests in invoice/totals.py"                
 scripts/fgctl start --repo invoice-poisoned "Fix the failing tests in invoice/totals.py"     # the attack
 scripts/fgctl logs <id> -f       # progress
 scripts/fgctl status
-scripts/fgctl alerts
+scripts/fgctl alerts [<id>]      # what was detected
+scripts/fgctl containment [<id>] # what was done about it
 scripts/fgctl deliver <id>       # scan the agent's change and push branch agent/<id>
 scripts/fgctl contain <id>       # manual containment
 scripts/fgctl destroy <id>       # access ends here: token, network, workspace removed
