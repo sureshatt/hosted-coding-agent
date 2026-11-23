@@ -125,7 +125,7 @@ def revoke_token(sid: str) -> None:
 
 # --- lifecycle ---------------------------------------------------------------
 
-def create(user: str, profile: str = "secure", repo: str = "invoice") -> str:
+def create(user: str, profile: str = "secure", repo: str = config.DEFAULT_REPO) -> str:
     if profile not in ("secure", "vulnerable"):
         raise ValueError("profile must be secure or vulnerable")
     if not running(config.GATEWAY) or not running(config.SINK):
@@ -200,9 +200,8 @@ def run(sid: str, mode: str, arg: str, model: str | None = None) -> None:
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",
         "FG_SESSION": sid,
+        "FG_MODEL": model or config.DEFAULT_MODEL,
     }
-    if model:
-        env["FG_MODEL"] = model
     env_args = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
     docker("run", "-d", "--name", runtime_name(sid), "--label", config.LABEL, "--label", f"fg.session={sid}",
            "--runtime", "runsc",

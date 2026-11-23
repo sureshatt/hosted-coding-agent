@@ -37,6 +37,28 @@ def _check_credential(cred: str) -> str:
              % (cred[:10], len(cred), "\n  ".join(errors)))
 
 
+def sync_fixture(name: str) -> None:
+    """Make main of the local git remote match fixtures/<name>, as a new
+    commit when it differs. Other branches (agent/<id> from delivery) stay."""
+    remote = config.GIT_REMOTE / f"{name}.git"
+    if not remote.exists():
+        config.GIT_REMOTE.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        g = ["git", "-C", tmp, "-c", "user.name=fg platform", "-c", "user.email=platform@fg.invalid"]
+        subprocess.run(["git", "clone", "-q", str(remote), tmp], check=True, capture_output=True)
+        for p in Path(tmp).iterdir():
+            if p.name != ".git":
+                subprocess.run(["rm", "-rf", str(p)], check=True)
+        subprocess.run(["cp", "-r", f"{config.FIXTURES / name}/.", tmp], check=True)
+        subprocess.run([*g, "add", "-A"], check=True)
+        if subprocess.run([*g, "diff", "--cached", "--quiet"]).returncode == 0:
+            return
+        subprocess.run([*g, "commit", "-q", "-m", f"Fixture {name}"], check=True)
+        subprocess.run([*g, "push", "-q", "origin", "HEAD:main"], check=True)
+    print(f"updated local git remote {remote}")
+
+
 def cmd_setup(a):
     """Build images, create the local git remote, store the upstream
     credential (read from stdin, never from arguments) and start the gateway
@@ -47,26 +69,8 @@ def cmd_setup(a):
         subprocess.run(["docker", "build", "-q", "-t", image, "-f", str(config.REPO / dockerfile), str(config.REPO)],
                        check=True, stdout=subprocess.DEVNULL)
 
-    # Two copies of the fixture: "invoice" carries the injected instructions,
-    # "invoice-clean" does not (for the legitimate-task check).
-    for name, strip_injection in (("invoice", False), ("invoice-clean", True)):
-        remote = config.GIT_REMOTE / f"{name}.git"
-        if remote.exists():
-            continue
-        config.GIT_REMOTE.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run(["cp", "-r", f"{config.REPO}/fixtures/invoice/.", tmp], check=True)
-            if strip_injection:
-                f = Path(tmp) / "invoice" / "totals.py"
-                src = f.read_text()
-                end = src.index('"""', 3) + 3
-                f.write_text('"""Invoice totals."""' + src[end:])
-            g = ["git", "-C", tmp, "-c", "user.name=fg platform", "-c", "user.email=platform@fg.invalid"]
-            subprocess.run(["git", "init", "-q", "-b", "main", tmp], check=True)
-            subprocess.run([*g, "add", "-A"], check=True)
-            subprocess.run([*g, "commit", "-q", "-m", "Initial fixture"], check=True)
-            subprocess.run(["git", "clone", "-q", "--bare", tmp, str(remote)], check=True)
-        print(f"created local git remote {remote}")
+    for name in config.REPOS:
+        sync_fixture(name)
 
     if a.credential_from_stdin:
         cred = sys.stdin.read().strip()
@@ -205,7 +209,7 @@ def cmd_deliver(a):
     print(json.dumps(delivery.deliver(a.session), indent=2))
 
 
-def cmd_test(a):
+def cmd_eval(a):
     from . import harness
     sys.exit(harness.main(a))
 
@@ -222,7 +226,7 @@ def main():
 
     s = sub.add_parser("create"); s.set_defaults(f=cmd_create)
     s.add_argument("--profile", default="secure", choices=["secure", "vulnerable"])
-    s.add_argument("--repo", default="invoice", choices=["invoice", "invoice-clean"])
+    s.add_argument("--repo", default=config.DEFAULT_REPO, choices=config.REPOS)
 
     s = sub.add_parser("run"); s.set_defaults(f=cmd_run)
     s.add_argument("session"); s.add_argument("mode", choices=["agent", "shell"]); s.add_argument("arg")
@@ -230,7 +234,7 @@ def main():
 
     s = sub.add_parser("start", help="create a session and run the agent on a task"); s.set_defaults(f=cmd_start)
     s.add_argument("task"); s.add_argument("--profile", default="secure", choices=["secure", "vulnerable"])
-    s.add_argument("--repo", default="invoice", choices=["invoice", "invoice-clean"])
+    s.add_argument("--repo", default=config.DEFAULT_REPO, choices=config.REPOS)
     s.add_argument("--model")
 
     s = sub.add_parser("logs"); s.set_defaults(f=cmd_logs)
@@ -248,7 +252,7 @@ def main():
     sub.add_parser("evidence-verify").set_defaults(f=cmd_evidence)
     sub.add_parser("detector").set_defaults(f=cmd_detector)
     s = sub.add_parser("alerts"); s.set_defaults(f=cmd_alerts); s.add_argument("session", nargs="?")
-    s = sub.add_parser("test", help="run the security test harness"); s.set_defaults(f=cmd_test)
+    s = sub.add_parser("eval", help="run the attack and clean scenarios and grade them"); s.set_defaults(f=cmd_eval)
     s.add_argument("--agent-runs", type=int, default=1, help="prompt-injection runs (need a credential)")
     s.add_argument("--skip-agent", action="store_true", help="only the deterministic tests")
     s.add_argument("--model")

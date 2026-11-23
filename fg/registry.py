@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   canary      TEXT NOT NULL,
   token_hash  TEXT NOT NULL,
   task        TEXT,
-  repo        TEXT NOT NULL DEFAULT 'invoice',
+  repo        TEXT NOT NULL DEFAULT 'invoice-clean',
   state       TEXT NOT NULL,
   created     REAL NOT NULL,
   updated     REAL NOT NULL

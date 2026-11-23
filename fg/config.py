@@ -13,10 +13,19 @@ LOGS = Path("/var/log/fg")                             # gateway and sink write 
 DELIVERY = STATE / "delivery"                          # queue/, verdicts/, work/
 GIT_REMOTE = STATE / "git-remote"                      # bare repos standing in for GitHub
 
+# Target repositories, one per folder under fixtures/, identical except that
+# the poisoned one carries the injected instructions.
+FIXTURES = REPO / "fixtures"
+REPOS = ("invoice-clean", "invoice-poisoned")
+DEFAULT_REPO = "invoice-clean"
+
 # Images
 INFRA_IMAGE = "fg-infra:1"                             # gateway and sink
 RUNTIME_IMAGE = "fg-runtime:1"                         # agent runtime
 HELPER_IMAGE = "fg-infra:1"                            # copy-in / export helpers (no network)
+
+# Model the agent uses unless a run passes --model
+DEFAULT_MODEL = "claude-haiku-5-5"
 
 # Shared infrastructure, each on its own network; the VM routes sessions to them.
 GATEWAY = "fg-gateway"

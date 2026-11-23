@@ -20,8 +20,8 @@
 | `fg/detector.py`, `fg/canary.py` | Detection and automatic response |
 | `fg/evidence.py` | Hash-chained evidence |
 | `fg/delivery.py`, `services/scanner.py` | Delivery pipeline |
-| `fg/harness.py`, `scripts/` | Test harness, setup, teardown |
-| `fixtures/invoice` | Target repository with the injection |
+| `fg/harness.py`, `scripts/` | Security eval, setup, teardown |
+| `fixtures/invoice-clean`, `fixtures/invoice-poisoned` | Target repositories, without and with the injection |
 | `spikes/` | The experiments behind `docs/decisions.md` |
 
 Everything we wrote is Python standard library and shell: there are no

@@ -69,7 +69,7 @@ or gVisor escape, a compromised Anthropic API.
 
 ## Results
 
-`scripts/test.sh --agent-runs 3`, 2026-11-13. Full report: `docs/results-reference.md`.
+`scripts/test.sh --agent-runs 3` (now `scripts/eval.sh`), 2026-11-13. Full report: `docs/results-reference.md`.
 
 - **Deterministic: 13/13 pass.** The positive control reached the sink
   and was detected and contained, so the tests can fail. All 8 network
