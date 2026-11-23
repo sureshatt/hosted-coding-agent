@@ -1,7 +1,7 @@
 #!/bin/sh
 # Entry point of a session runtime.
 #   run-agent agent "<task>"   run Claude Code on the task, non-interactively
-#   run-agent shell "<cmd>"    run a shell command (used by the test harness to
+#   run-agent shell "<cmd>"    run a shell command (used by the eval to
 #                              act as an already-compromised agent)
 #
 # Claude Code runs with permission prompts disabled: nobody is there to answer

@@ -20,7 +20,7 @@
 | `fg/detector.py`, `fg/canary.py` | Detection and automatic response |
 | `fg/evidence.py` | Hash-chained evidence |
 | `fg/delivery.py`, `services/scanner.py` | Delivery pipeline |
-| `fg/harness.py`, `scripts/` | Security eval, setup, teardown |
+| `fg/evals.py`, `scripts/` | Security eval, setup, teardown |
 | `fixtures/invoice-clean`, `fixtures/invoice-poisoned` | Target repositories, without and with the injection |
 | `spikes/` | The experiments behind `docs/decisions.md` |
 
@@ -40,7 +40,7 @@ third-party packages in the control plane, gateway or scanner.
 - The runtime has **no git or cloud credentials**. Code leaves through the
   delivery pipeline, which the control plane runs.
 - When a session ends: token revoked, nftables table deleted, network and
-  workspace volume removed. The harness checks each of these ("teardown
+  workspace volume removed. The eval checks each of these ("teardown
   clean").
 
 ## Production changes (designed, not built)
@@ -81,7 +81,7 @@ and detection coverage.
 - **Reproducibility**: record the variant, model version, Claude Code
   version and full agent transcript for every run; a variant that leads to
   an attempt (or, worse, a success) is saved as a fixture.
-- **Regression**: each saved fixture becomes a harness case. Enforcement
+- **Regression**: each saved fixture becomes an eval case. Enforcement
   results must stay deterministic; attempt counts are tracked as a trend.
 - More attack categories or higher volume add little: the network policy
   allows one destination, so effort goes to the allowed path and detection.

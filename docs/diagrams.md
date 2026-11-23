@@ -89,3 +89,30 @@ flowchart TD
 Rules: `EXFIL_SUCCESS` (critical), `EGRESS_BLOCKED`, `GATEWAY_ABUSE`,
 `DELIVERY_BLOCKED`, `GATEWAY_EGRESS_BLOCKED` (high), `CANARY_TO_MODEL`
 (medium). Containment is automatic; no one reviews an alert before it acts.
+
+## 5. Containment
+
+```mermaid
+flowchart TD
+  T1(["detector: high or critical alert"]) --> C
+  T2(["engineer: fgctl contain #lt;id#gt;"]) --> C
+  C["contain(session)<br/>fg/session.py"] --> S1
+
+  S1["1 · quarantine network<br/>firewall profile → quarantine: drop everything"]
+  S1 -. "check: profile reads back as quarantine" .-> V1{{"verified?"}}
+  S1 --> S2["2 · revoke session token<br/>remove from gateway tokens.json"]
+  S2 -. "check: gateway rejects token as revoked" .-> V2{{"verified?"}}
+  S2 --> S3["3 · preserve evidence<br/>inspect · output log · firewall rules · workspace.tar<br/>(tar made by a no-network helper)"]
+  S3 -. "check: all 4 files saved and hashed" .-> V3{{"verified?"}}
+  S3 --> S4["4 · remove runtime<br/>docker rm -f fg-rt-#lt;id#gt;"]
+  S4 -. "check: container no longer running" .-> V4{{"verified?"}}
+
+  S4 --> R["session state → contained"]
+  R --> L[("containment log · hash-chained<br/>reason, who, seconds, each step + verified")]
+  S3 --> SN[("snapshots/#lt;id#gt;-#lt;time#gt;/")]
+```
+
+Order matters: stop the damage (network), then access (token), then keep
+evidence before anything is deleted, then remove the runtime. Every step runs
+even if an earlier one fails, and each is verified from outside the session.
+Read the results with `fgctl containment [<id>]`.

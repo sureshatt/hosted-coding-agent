@@ -220,8 +220,8 @@ def cmd_deliver(a):
 
 
 def cmd_eval(a):
-    from . import harness
-    sys.exit(harness.main(a))
+    from . import evals
+    sys.exit(evals.main(a))
 
 
 def main():

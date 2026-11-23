@@ -86,7 +86,7 @@ scripts/teardown.sh              # deletes the VM and everything in it
 ## Layout
 
 ```
-fg/            control plane (fgctl), netpolicy, detector, delivery, evidence, harness
+fg/            control plane (fgctl), netpolicy, detector, delivery, evidence, evals
 services/      gateway, sink, scanner
 images/        container images (pinned by digest)
 fixtures/      target repositories: invoice-clean, invoice-poisoned (with the injection)

@@ -47,7 +47,7 @@ under gVisor) so lookups are logged and dropped too.
   equivalent of this design; too much setup for the timebox.
 
 **Limits.** The rules are only as good as their loading: `fgctl` checks the
-table after every change, and the harness runs a positive control. Rules
+table after every change, and the eval runs a positive control. Rules
 identify the runtime by "the bridge port that is not the gateway or sink",
 captured before the runtime starts. A VM root compromise defeats all of this.
 
@@ -97,7 +97,7 @@ removed with the session (`netpolicy._routing_rules`). The alternative,
 to any routed source. Lesson: the reachability check (the legitimate run)
 is as important as the blocking checks.
 
-**Third: blocked, but not seen.** The harness then failed D1 and D2: the
+**Third: blocked, but not seen.** The eval then failed D1 and D2: the
 attempt to reach the sink was blocked, but with no log, no alert and no
 containment. `nft monitor trace` showed why. Docker loads `br_netfilter`,
 which runs the IP `PREROUTING` hooks (and Docker's raw drop) inside the
@@ -111,7 +111,7 @@ only to block.
 **Evidence.** The gateway's Python process is not visible on the VM (only
 `runsc-sandbox`); inside, the kernel log reads "Starting gVisor". From the
 gateway: api.anthropic.com 200; the Mac, the VM and a non-HTTPS internet
-port blocked and alerted. Full harness: see `docs/results-reference.md`.
+port blocked and alerted. Full eval: see `docs/results-reference.md`.
 
 ## D4. Revocation through a file, not an admin API
 
