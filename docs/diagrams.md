@@ -56,3 +56,36 @@ flowchart LR
 
 Each session gets its own bridge. The VM routes only agent runtime → model
 gateway; the rules live in the VM, outside the agent runtime's reach.
+
+## 4. Detection and response
+
+```mermaid
+flowchart TD
+  subgraph SRC["Log sources · all outside the agent runtime"]
+    K["VM kernel log<br/>firewall drops: fg-drop s=#lt;id#gt;"]
+    G["gateway.jsonl<br/>auth failures, denied endpoints, canary in request"]
+    S["sink.jsonl<br/>anything that reached the sink"]
+    D["delivery.jsonl<br/>scanner verdicts"]
+  end
+
+  K -- "journalctl -k -f (streamed)" --> R["detector · fg-detector<br/>reads new lines"]
+  G -- "polled every 0.3 s" --> R
+  S -- "polled every 0.3 s" --> R
+  D -- "polled every 0.3 s" --> R
+
+  R --> N["1 · parse into an event"]
+  N --> A["2 · attribute to a session<br/>s=#lt;id#gt; or source IP"]
+  A --> T[("telemetry log<br/>hash-chained")]
+  A --> RU{"3 · rule matches?"}
+  RU -- "no" --> END(["done"])
+  RU -- "yes" --> SEV{"4 · high or critical?"}
+  SEV -- "no (CANARY_TO_MODEL)" --> AL
+  SEV -- "yes" --> C["5 · contain, each step verified<br/>quarantine network → revoke token<br/>→ save evidence → remove runtime"]
+  C --> CL[("containment log")]
+  C --> AL[("alerts log<br/>hash-chained")]
+  AL --> OUT["printed to journalctl -u fg-detector<br/>read with fgctl alerts"]
+```
+
+Rules: `EXFIL_SUCCESS` (critical), `EGRESS_BLOCKED`, `GATEWAY_ABUSE`,
+`DELIVERY_BLOCKED`, `GATEWAY_EGRESS_BLOCKED` (high), `CANARY_TO_MODEL`
+(medium). Containment is automatic; no one reviews an alert before it acts.
